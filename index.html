@@ -6,19 +6,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>threeday11</title>
     <style>
-      body{
+      html,
+      body {
+        width: 100%;
+        height: 100%;
         margin: 0;
         padding: 0;
-        
+        overflow: hidden;
       }
-      #app{
+      #app {
+        width: 100%;
+        height: 100%;
         display: block;
-      outline: none;      }
+      }
+      #loading {
+        position: absolute;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: rgba(17, 24, 39, 0.88);
+        color: #f8fafc;
+        font-family: system-ui, sans-serif;
+        font-size: 0.95rem;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        opacity: 0;
+      }
+      #loading.visible {
+        opacity: 1;
+      }
     </style>
   </head>
   <body>
     <canvas id="app"></canvas>
-    <div id="loading"></div>
+    <div id="loading">Loading model…</div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
