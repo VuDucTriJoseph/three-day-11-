@@ -28,14 +28,23 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshStandardMaterial({
-  color: 0x4f46e5,
-  roughness: 0.25,
-  metalness: 0.7,
-});
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const intersectableObjects = [];
+const actions = [];
+let activeAction = null;
+let activeActionIndex = 0;
+
+// const geometry = new THREE.BoxGeometry(1, 1, 1);
+// const material = new THREE.MeshStandardMaterial({
+//   color: 0x4f46e5,
+//   roughness: 0.25,
+//   metalness: 0.7,
+// });
+// const cube = new THREE.Mesh(geometry, material);
+// cube.name = "ControlCube";
+// scene.add(cube);
+// intersectableObjects.push(cube);
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
@@ -52,6 +61,20 @@ scene.add(axesHelper);
 
 const modelGroup = new THREE.Group();
 scene.add(modelGroup);
+
+const modelProxy = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4, 0.4, 0.4),
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    wireframe: true,
+    opacity: 0.55,
+    transparent: true,
+  }),
+);
+modelProxy.name = "ModelProxy";
+modelGroup.add(modelProxy);
+
+let mixer = null;
 
 const loadingManager = new THREE.LoadingManager(
   () => {
@@ -76,9 +99,30 @@ gltfLoader.load(
   (gltf) => {
     const model = gltf.scene;
     model.position.set(0, 0, 0);
-    model.rotation.y = Math.PI;
+    // model.rotation.y = Math.PI;
     model.scale.set(0.01, 0.01, 0.01);
     modelGroup.add(model);
+    modelProxy.visible = false;
+    model.name = "FoxModel";
+
+    // model.traverse((child) => {
+    //   if (child.isMesh) {
+    //     intersectableObjects.push(child);
+    //   }
+    // });
+
+    if (gltf.animations && gltf.animations.length > 0) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach((clip, index) => {
+        const action = mixer.clipAction(clip);
+        actions.push(action);
+        if (index === 0) {
+          action.play();
+          activeAction = action;
+          activeActionIndex = 0;
+        }
+      });
+    }
   },
   undefined,
   (error) => {
@@ -96,15 +140,55 @@ function resizeRenderer() {
 }
 
 window.addEventListener("resize", resizeRenderer, false);
+window.addEventListener("mousemove", (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+});
+
+window.addEventListener("click", () => {
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(intersectableObjects, true);
+  if (intersects.length === 0 || actions.length === 0) {
+    return;
+  }
+
+  if (actions.length === 1) {
+    const action = actions[0];
+    if (action.isRunning()) {
+      action.paused = true;
+      console.log("Model animation paused");
+    } else {
+      action.paused = false;
+      action.play();
+      console.log("Model animation resumed");
+    }
+    return;
+  }
+
+  const nextIndex = (activeActionIndex + 1) % actions.length;
+  if (nextIndex !== activeActionIndex) {
+    const nextAction = actions[nextIndex];
+    nextAction.reset().play();
+    activeAction.crossFadeTo(nextAction, 0.5, false);
+    activeAction = nextAction;
+    activeActionIndex = nextIndex;
+    console.log(`Switched to animation ${nextIndex}`);
+  }
+});
 
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
 
-  const elapsed = clock.getElapsedTime();
-  cube.rotation.x = elapsed * 0.5;
-  cube.rotation.y = elapsed * 0.8;
+  // const elapsed = clock.getElapsedTime();
+  // cube.rotation.x = elapsed * 0.5;
+  // cube.rotation.y = elapsed * 0.8;
+
+  const delta = clock.getDelta();
+  if (mixer) {
+    mixer.update(delta);
+  }
 
   controls.update();
   renderer.render(scene, camera);
