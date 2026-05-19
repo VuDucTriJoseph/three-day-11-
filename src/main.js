@@ -32,9 +32,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const raycaster = new THREE.Raycaster();
+const groundRaycaster = new THREE.Raycaster();
+const downVector = new THREE.Vector3(0, -1, 0);
 const mouse = new THREE.Vector2();
 const intersectableObjects = [];
 const actions = {};
+let currentStage = null;
 let mixer = null;
 let activeAction = null;
 let activeActionIndex = 0;
@@ -57,6 +60,19 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(2, 3, 2);
 scene.add(directionalLight);
+
+const lightFolder = gui.addFolder();
+lightFolder.add(directionalLight.position, "x", -10, 10, 0.1).name("X axix");
+lightFolder.add(directionalLight.position, "y", 0, 15, 0.1).name("Y axix");
+lightFolder.add(directionalLight.position, "z", -10, 10, 0.1).name("Z axix");
+lightFolder.add(directionalLight, "intensity", 0, 5, 0.1).name("intensity");
+
+const dLightHelper = new THREE.DirectionalLightHelper(
+  directionalLight,
+  1,
+  0xff0000,
+);
+scene.add(dLightHelper);
 
 const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
 scene.add(gridHelper);
@@ -133,6 +149,62 @@ gltfLoader.load(
   },
 );
 // console.log(actions);
+
+const textureLoader = new THREE.TextureLoader(loadingManager);
+const bakedTexture = textureLoader.load("/Baked_Stage.png");
+bakedTexture.colorSpace = THREE.SRGBColorSpace;
+bakedTexture.flipY = false;
+
+gltfLoader.load("/stage_optimized.glb", (gltf) => {
+  const stageModel = gltf.scene;
+  currentStage = stageModel;
+
+  const bakedMaterial = new THREE.MeshBasicMaterial({ map: bakedTexture });
+
+  stageModel.traverse((child) => {
+    if (child.isMesh) {
+      child.material = bakedMaterial;
+
+      child.receiveShadow = false;
+      child.castShadow = false;
+    }
+  });
+
+  stageModel.position.set(0, 0, 0);
+  scene.add(stageModel);
+
+  const shadowCatcher = stageModel.clone();
+  const shadowMat = new THREE.ShadowMaterial({
+    opacity: 0.5,
+    depthWrite: false, //tat ghi de chieu sau
+    polygonOffset: true, //kich hoat thuat toan dich lop hien thi
+    polygonOffsetFactor: -1, // keo lop nay len tren 1 don vi logic goc
+    polygonOffsetUnits: -1,
+  });
+  shadowCatcher.traverse((child) => {
+    if (child.isMesh) {
+      child.material = shadowMat;
+      child.receiveShadow = true;
+      child.castShadow = false;
+    }
+  });
+  scene.add(shadowCatcher);
+});
+
+// plane
+const shadowPlaneGeo = new THREE.PlaneGeometry(10, 10);
+
+const shadowPlanceMat = new THREE.ShadowMaterial({
+  opacity: 0.5,
+});
+
+const shadowPlance = new THREE.Mesh(shadowPlaneGeo, shadowPlanceMat);
+shadowPlance.rotation.x = -Math.PI / 2;
+shadowPlance.position.y = 0.01;
+shadowPlance.receiveShadow = true;
+scene.add(shadowPlance);
+
+//////////////////////////
 const fadeToAction = (name, duration) => {
   const nextAction = actions[name];
 
@@ -253,16 +325,34 @@ function animate() {
         // LƯU Ý: File Fox.glb mặc định hướng mặt của con cáo trùng với trục Z.
         // Nếu con cáo bị chạy lùi, bạn chỉ cần đổi dấu thành trừ (-) ở dòng dưới, hoặc dùng forwardVector.negate()
         foxModel.position.addScaledVector(forwardVector, speed * delta);
-
-        // Đỉnh cao: Bắt Camera và OrbitControls phải tự động "đuổi theo" tâm con Cáo
-        // Tạo cảm giác Camera góc nhìn thứ 3 giống game GTA / Assassin's Creed
-        controls.target.copy(foxModel.position);
       }
     }
-
-    controls.update();
-    renderer.render(scene, camera);
+    // Đỉnh cao: Bắt Camera và OrbitControls phải tự động "đuổi theo" tâm con Cáo
+    // Tạo cảm giác Camera góc nhìn thứ 3 giống game GTA / Assassin's Creed
+    controls.target.copy(foxModel.position);
   }
+  if (foxModel && currentStage) {
+    // 1. dat diem bat dau cua tia lazer. cung toa do x,z voi con cao nhung nam tren cao 10m
+    const rayOrigin = new THREE.Vector3(
+      foxModel.position.x,
+      10,
+      foxModel.position.z,
+    );
+    // 2. chia tia xuong dat
+    groundRaycaster.set(rayOrigin, downVector);
+    // 3 ban tia quet qua toan bo be da
+    const intersect = groundRaycaster.intersectObject(currentStage, true);
+
+    if (intersect.length > 0) {
+      // lay diem va cham dau tien (diem cao nhat)
+      const groundHeight = intersect[0].point.y;
+      // gan chieu cao cua mat dat cho vi tri y  cua con cao
+      // Three.js mac dinh position.y cua model la vi tri chan cua no
+      foxModel.position.y = groundHeight;
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
 }
 
 animate();
